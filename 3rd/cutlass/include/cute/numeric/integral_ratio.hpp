@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,11 +30,10 @@
  **************************************************************************************************/
 #pragma once
 
-#include <cute/config.hpp>
-
-#include <cute/util/type_traits.hpp>
-#include <cute/numeric/math.hpp>
-#include <cute/numeric/integral_constant.hpp>
+#include <cute/config.hpp>                     // CUTE_HOST_DEVICE
+#include <cute/numeric/integral_constant.hpp>  // cute::false_type, cute::true_type
+#include <cute/numeric/math.hpp>               // cute::signum
+#include <cute/util/type_traits.hpp>           // __CUTE_REQUIRES
 
 namespace cute
 {
@@ -65,12 +64,74 @@ class R {
   using type = typename conditional<num == 0 || den == 1, C<num>, R<num,den>>::type;
 };
 
+template <class T>
+struct is_ratio : false_type {};
+template <auto n, auto d>
+struct is_ratio<R<n,d>> : true_type {};
+
 template <auto a, auto b>
 CUTE_HOST_DEVICE constexpr
 typename R<a,b>::type
 ratio(C<a>, C<b>) {
   return {};
 }
+
+template <auto a, auto b, auto c>
+CUTE_HOST_DEVICE constexpr
+typename R<a*c,b>::type
+ratio(C<a>, R<b,c>) {
+  return {};
+}
+
+template <auto a, auto b, auto c>
+CUTE_HOST_DEVICE constexpr
+typename R<b,a*c>::type
+ratio(R<b,c>, C<a>) {
+  return {};
+}
+
+template <auto a, auto b, auto c, auto d>
+CUTE_HOST_DEVICE constexpr
+typename R<a*d,b*c>::type
+ratio(R<a,b>, R<c,d>) {
+  return {};
+}
+
+//
+// Non-reduced ratio implementations
+//
+
+template <auto a, auto b>
+CUTE_HOST_DEVICE constexpr
+R<a,b>
+nratio(C<a>, C<b>) {
+  return {};
+}
+
+template <auto a, auto b, auto c>
+CUTE_HOST_DEVICE constexpr
+R<a*c,b>
+nratio(C<a>, R<b,c>) {
+  return {};
+}
+
+template <auto a, auto b, auto c>
+CUTE_HOST_DEVICE constexpr
+R<b,a*c>
+nratio(R<b,c>, C<a>) {
+  return {};
+}
+
+template <auto a, auto b, auto c, auto d>
+CUTE_HOST_DEVICE constexpr
+R<a*d,b*c>
+nratio(R<a,b>, R<c,d>) {
+  return {};
+}
+
+//
+// Operators
+//
 
 template <auto a, auto b, auto x, auto y>
 CUTE_HOST_DEVICE constexpr
@@ -111,6 +172,13 @@ operator*(R<a,b>, C const& c) {
   return c * R<a,b>::num / R<a,b>::den;
 }
 
+template <class C, auto a, auto b>
+CUTE_HOST_DEVICE constexpr
+auto
+operator/(C const& c, R<a,b>) {
+  return c * R<b,a>{};
+}
+
 template <auto a, auto b, auto x, auto y>
 CUTE_HOST_DEVICE constexpr
 typename R<a*y+b*x, b*y>::type
@@ -131,6 +199,10 @@ typename R<a+c*b,b>::type
 operator+(C<c>, R<a,b>) {
   return {};
 }
+
+/////////////////
+// Comparisons //
+/////////////////
 
 template <auto a, auto b, auto x, auto y>
 CUTE_HOST_DEVICE constexpr
@@ -153,11 +225,53 @@ operator==(C<c>, R<a,b>) {
   return {};
 }
 
+///////////////////////
+// Special functions //
+///////////////////////
+
+template <auto a, auto b, auto x, auto y>
+CUTE_HOST_DEVICE constexpr
+typename R<gcd(a*y,b*x),b*x>::type
+gcd(R<a,b>, R<x,y>) {
+  return {};
+}
+
+template <auto a, auto b, auto c>
+CUTE_HOST_DEVICE constexpr
+typename R<gcd(a,b*c),b*c>::type
+gcd(R<a,b>, C<c>) {
+  return {};
+}
+
+template <auto c, auto a, auto b>
+CUTE_HOST_DEVICE constexpr
+typename R<gcd(a,b*c),b*c>::type
+gcd(C<c>, R<a,b>) {
+  return {};
+}
+
 template <auto a, auto b>
 CUTE_HOST_DEVICE constexpr
 typename R<abs(a),abs(b)>::type
 abs(R<a,b>) {
   return {};
+}
+
+template <auto a, auto b>
+CUTE_HOST_DEVICE constexpr
+int32_t
+log_2(R<a,b>) {
+  static_assert(R<a,b>::num > 0);
+  static_assert(R<a,b>::den > 0);
+  return log_2(static_cast<uint32_t>(R<a,b>::num)) - log_2(static_cast<uint32_t>(R<a,b>::den));
+}
+
+// @return A non-reduced ratio cute::R of the Trait0::value / Trait1::value
+template <class Trait0, class Trait1>
+CUTE_HOST_DEVICE constexpr
+auto
+trait_ratio(Trait0, Trait1) {
+  return nratio(static_value<Trait0>(), static_value<Trait1>());
 }
 
 //

@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -68,7 +68,7 @@ template <
 struct NamedBarrierSync {
   CUTLASS_DEVICE
   static void sync() {
-    cutlass::arch::NamedBarrier::sync(ThreadCount, BarrierId);
+    cutlass::arch::NamedBarrier::sync(ThreadCount, static_cast<arch::ReservedNamedBarriers>(BarrierId));
   }
 };
 
@@ -227,9 +227,9 @@ template <
   uint32_t MaxNumNamedBarriers = 16
 >
 struct NamedBarrierManager {
-  static constexpr uint32_t HardwareMaxNumNamedBarriers = 16;
-  static_assert(MaxNumNamedBarriers <= HardwareMaxNumNamedBarriers);
-  static_assert(MaxNumNamedBarriers + Offset <= HardwareMaxNumNamedBarriers, "Barrier IDs cannot exceed 15");
+
+  static_assert(MaxNumNamedBarriers <= arch::NamedBarrier::HardwareMaxNumNamedBarriers);
+  static_assert(MaxNumNamedBarriers + Offset <= arch::NamedBarrier::HardwareMaxNumNamedBarriers, "Barrier IDs cannot exceed 15");
 
   // Number of threads participating in the barrier
   static constexpr uint32_t ThreadCount = ThreadCount_;
@@ -276,10 +276,8 @@ struct NamedBarrierManager {
 private:
   CUTLASS_DEVICE
   static void
-  check_barrier_in_range(uint32_t idx) {
-    if (idx >= MaxNumNamedBarriers) {
-      CUTE_RUNTIME_ASSERT("Index exceeds barrier count");
-    }
+  check_barrier_in_range([[maybe_unused]] uint32_t idx) {
+    assert((idx < MaxNumNamedBarriers) && "Index exceeds barrier count");
   }
 
   template <uint32_t... Idx>

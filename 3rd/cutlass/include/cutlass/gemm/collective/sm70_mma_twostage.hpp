@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -38,10 +38,11 @@
 #include "cute/algorithm/gemm.hpp"
 #include "cute/atom/mma_atom.hpp"
 #include "cute/tensor_predicate.hpp"
+#include "cutlass/gemm/collective/collective_mma_decl.hpp"
 
 
 /////////////////////////////////////////////////////////////////////////////////////////////////
- 
+
 namespace cutlass::gemm::collective {
 using namespace cute;
 
@@ -100,11 +101,11 @@ struct CollectiveMma<
   using TransformB = TransformB_;
   using ArchTag = typename DispatchPolicy::ArchTag;
 
-  static_assert(rank(SmemLayoutAtomA{}) == 2, "SmemLayoutAtom must be rank 2 (M/N, K)");
+  static_assert(cute::rank(SmemLayoutAtomA{}) == 2, "SmemLayoutAtom must be rank 2 (M/N, K)");
   static_assert((size<0>(TileShape{}) % size<0>(SmemLayoutAtomA{})) == 0, "SmemLayoutAtom must evenly divide tile shape.");
   static_assert((size<2>(TileShape{}) % size<1>(SmemLayoutAtomA{})) == 0, "SmemLayoutAtom must evenly divide tile shape.");
 
-  static_assert(rank(SmemLayoutAtomB{}) == 2, "SmemLayoutAtom must be rank 2 (M/N, K)");
+  static_assert(cute::rank(SmemLayoutAtomB{}) == 2, "SmemLayoutAtom must be rank 2 (M/N, K)");
   static_assert((size<1>(TileShape{}) % size<0>(SmemLayoutAtomB{})) == 0, "SmemLayoutAtom must evenly divide tile shape.");
   static_assert((size<2>(TileShape{}) % size<1>(SmemLayoutAtomB{})) == 0, "SmemLayoutAtom must evenly divide tile shape.");
 
@@ -163,7 +164,7 @@ struct CollectiveMma<
       KTileIterator k_tile_iter, int k_tile_count,
       ResidueMNK residue_mnk,
       int thread_idx,
-      char *smem_buf) 
+      char *smem_buf)
   {
     using namespace cute;
 
@@ -173,9 +174,9 @@ struct CollectiveMma<
     static_assert(is_gmem<TensorA>::value, "A tensor must be gmem resident.");
     static_assert(is_gmem<TensorB>::value, "B tensor must be gmem resident.");
     static_assert(is_rmem<FrgTensorC>::value, "C tensor must be rmem resident.");
-    static_assert(rank(SmemLayoutA{}) == 2,
+    static_assert(cute::rank(SmemLayoutA{}) == 2,
       "MainloopTwoStage must not have a smem shape with a pipeline mode.");
-    static_assert(rank(SmemLayoutB{}) == 2,
+    static_assert(cute::rank(SmemLayoutB{}) == 2,
       "MainloopTwoStage must not have a smem shape with a pipeline mode.");
 
     // Construct shared memory tiles
@@ -252,9 +253,9 @@ struct CollectiveMma<
     while (k_tile_count > -1)
     {
       // Pipeline the outer products with a static for loop
-      for_each(make_int_sequence<K_BLOCK_MAX>{}, [&] (auto k_block) 
+      for_each(make_int_sequence<K_BLOCK_MAX>{}, [&] (auto k_block)
       {
-        if (k_block == K_BLOCK_MAX - 1) 
+        if (k_block == K_BLOCK_MAX - 1)
         {
           __syncthreads();
 
@@ -268,7 +269,7 @@ struct CollectiveMma<
         int k_block_next = (k_block + Int<1>{}) % K_BLOCK_MAX;     // static
         copy(tCsA(_,_,k_block_next), tCrA_copy_view(_,_,k_block_next));
         copy(tCsB(_,_,k_block_next), tCrB_copy_view(_,_,k_block_next));
-        if (k_block == 0) 
+        if (k_block == 0)
         {
           // Copy gmem to rmem
           copy(gmem_tiled_copy_a, tAgA(_,_,_,*k_tile_iter), tArA);
@@ -343,11 +344,11 @@ struct CollectiveMma<
   using TransformB = TransformB_;
   using ArchTag = typename DispatchPolicy::ArchTag;
 
-  static_assert(rank(SmemLayoutAtomA{}) == 2, "SmemLayoutAtom must be rank 2 (M/N, K)");
+  static_assert(cute::rank(SmemLayoutAtomA{}) == 2, "SmemLayoutAtom must be rank 2 (M/N, K)");
   static_assert((size<0>(TileShape{}) % size<0>(SmemLayoutAtomA{})) == 0, "SmemLayoutAtom must evenly divide tile shape.");
   static_assert((size<2>(TileShape{}) % size<1>(SmemLayoutAtomA{})) == 0, "SmemLayoutAtom must evenly divide tile shape.");
 
-  static_assert(rank(SmemLayoutAtomB{}) == 2, "SmemLayoutAtom must be rank 2 (M/N, K)");
+  static_assert(cute::rank(SmemLayoutAtomB{}) == 2, "SmemLayoutAtom must be rank 2 (M/N, K)");
   static_assert((size<1>(TileShape{}) % size<0>(SmemLayoutAtomB{})) == 0, "SmemLayoutAtom must evenly divide tile shape.");
   static_assert((size<2>(TileShape{}) % size<1>(SmemLayoutAtomB{})) == 0, "SmemLayoutAtom must evenly divide tile shape.");
 
@@ -406,7 +407,7 @@ struct CollectiveMma<
       KTileIterator k_tile_iter, int k_tile_count,
       ResidueMNK residue_mnk,
       int thread_idx,
-      char *smem_buf) 
+      char *smem_buf)
   {
     using namespace cute;
 
@@ -414,9 +415,9 @@ struct CollectiveMma<
     static_assert(is_gmem<TensorA>::value, "A tensor must be gmem resident.");
     static_assert(is_gmem<TensorB>::value, "B tensor must be gmem resident.");
     static_assert(is_rmem<FrgTensorC>::value, "C tensor must be rmem resident.");
-    static_assert(rank(SmemLayoutA{}) == 2,
+    static_assert(cute::rank(SmemLayoutA{}) == 2,
       "MainloopTwoStage must not have a smem shape with a pipeline mode.");
-    static_assert(rank(SmemLayoutB{}) == 2,
+    static_assert(cute::rank(SmemLayoutB{}) == 2,
       "MainloopTwoStage must not have a smem shape with a pipeline mode.");
 
     // Construct shared memory tiles
@@ -549,9 +550,9 @@ struct CollectiveMma<
     while (k_tile_count > -1)
     {
       // Pipeline the outer products with a static for loop
-      for_each(make_int_sequence<K_BLOCK_MAX>{}, [&] (auto k_block) 
+      for_each(make_int_sequence<K_BLOCK_MAX>{}, [&] (auto k_block)
       {
-        if (k_block == K_BLOCK_MAX - 1) 
+        if (k_block == K_BLOCK_MAX - 1)
         {
           __syncthreads();
 
@@ -565,7 +566,7 @@ struct CollectiveMma<
         int k_block_next = (k_block + Int<1>{}) % K_BLOCK_MAX;    // static
         copy(tCsA(_,_,k_block_next), tCrA_copy_view(_,_,k_block_next));
         copy(tCsB(_,_,k_block_next), tCrB_copy_view(_,_,k_block_next));
-        if (k_block == 0) 
+        if (k_block == 0)
         {
           if (k_tile_count <= 0) {
             clear(tApA);

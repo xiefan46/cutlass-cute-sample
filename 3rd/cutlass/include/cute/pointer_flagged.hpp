@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,15 +30,13 @@
  **************************************************************************************************/
 #pragma once
 
-#include <cute/config.hpp>
-
-#include <cute/arch/util.hpp>        // cast_smem_ptr_to_uint
-
-#include <cute/pointer.hpp>
-#include <cute/pointer_swizzle.hpp>
-#include <cute/swizzle_layout.hpp>
-
-#include <cute/tensor.hpp>
+#include <cute/config.hpp>                     // CUTE_HOST_DEVICE
+#include <cute/layout_composed.hpp>            // cute::ComposedLayout
+#include <cute/pointer.hpp>                    // cute::make_smem_ptr
+#include <cute/pointer_sparse.hpp>             // cute::is_sparse
+#include <cute/pointer_swizzle.hpp>            // cute::make_swizzle_ptr
+#include <cute/arch/util.hpp>                  // cute::cast_smem_ptr_to_uint
+#include <cute/numeric/integral_constant.hpp>  // cute::Int
 
 namespace cute
 {
@@ -89,7 +87,7 @@ downcast(ComposedLayout<SwizzleFn,smem_ptr_flag_bits<B>,Layout> const& layout)
 // Conversion with swizzle_layout
 //
 
-template <class T, class SwizzleFn, int B, class Layout>
+template <class SwizzleFn, int B, class Layout>
 CUTE_HOST_DEVICE
 auto
 as_position_independent_swizzle_layout(ComposedLayout<SwizzleFn,smem_ptr_flag_bits<B>,Layout> const& layout)
@@ -109,7 +107,7 @@ as_position_independent_swizzle_tensor(Tensor&& tensor)
   } else {
 #if !defined(NDEBUG)
     {
-    uint32_t address = cast_smem_ptr_to_uint(raw_pointer_cast(std::forward<Tensor>(tensor).data()));
+    uint32_t address = cast_smem_ptr_to_uint(raw_pointer_cast(static_cast<Tensor&&>(tensor).data()));
     uint32_t mask    = ((uint32_t(1) << SwizzleFn::num_base) - 1) | SwizzleFn::swizzle_code;
     assert((address & mask) == 0);  // Alignment to the Base, Z, and Y of Swizzle
     }
@@ -118,10 +116,51 @@ as_position_independent_swizzle_tensor(Tensor&& tensor)
     // Recast swizzle from acting on byte-addressed pointers to elements of type-T
     auto new_swizzle = recast_layout<uint8_t, T>(SwizzleFn{});
     // Strip off everything and create a new smem_ptr for type-T
-    auto new_ptr = make_smem_ptr<T>(raw_pointer_cast(std::forward<Tensor>(tensor).data()));
+    auto new_ptr = make_smem_ptr<T>(raw_pointer_cast(static_cast<Tensor&&>(tensor).data()));
     return make_tensor(new_ptr, composition(new_swizzle, Int<0>{}, tensor.layout()));
   }
   CUTE_GCC_UNREACHABLE;
+}
+
+// A model of a nullptr sparse_ptr<S, smem_ptr<T>> with B == sizeof_bits<T>::value
+// That represents an unset pointer. This is a placeholder type that is waiting for an smem_ptr
+template <int Sparsity, int Bits>
+struct smem_sparse_ptr_flag_bits : Int<0> {};
+
+template <int Sparsity>
+using smem_sparse_ptr_flag = smem_sparse_ptr_flag_bits<Sparsity, 1>;
+
+// A flagged construction method to transform ComposedLayout
+// Make a swizzle pointer tensor and check that the intended type size matches
+template <class Iterator, class SwizzleFn, int S, int B, class Layout>
+CUTE_HOST_DEVICE constexpr
+auto
+make_tensor(Iterator const& ptr,
+            ComposedLayout<SwizzleFn,smem_sparse_ptr_flag_bits<S,B>,Layout> const& layout)
+{
+  static_assert(is_smem<Iterator>::value, "Expected smem.");
+  static_assert(is_sparse_ptr<Iterator>::value, "Expected sparse iter");
+  static_assert(is_sparse<iter_value_t<Iterator>>::value, "Expected sparse elem");
+  static_assert(S == iter_value_t<Iterator>::sparsity, "Expected sparsity S");
+  static_assert(B == sizeof_bits<typename iter_value_t<Iterator>::raw_type>::value, "Expected B-bit pointer type");
+  return make_tensor(make_swizzle_ptr(ptr, layout.layout_a()), layout.layout_b());
+}
+
+// NOTE: To preserve smem_ptr_flag_bits under recast ops
+template <int N, class SwizzleFn, int S, int B, class Layout>
+CUTE_HOST_DEVICE constexpr
+auto
+upcast(ComposedLayout<SwizzleFn,smem_sparse_ptr_flag_bits<S,B>,Layout> const& layout)
+{
+  static_assert(dependent_false<SwizzleFn>, "Not implemented for safety");
+}
+
+template <int N, class SwizzleFn, int S, int B, class Layout>
+CUTE_HOST_DEVICE constexpr
+auto
+downcast(ComposedLayout<SwizzleFn,smem_sparse_ptr_flag_bits<S,B>,Layout> const& layout)
+{
+  static_assert(dependent_false<SwizzleFn>, "Not implemented for safety");
 }
 
 //
@@ -129,6 +168,14 @@ as_position_independent_swizzle_tensor(Tensor&& tensor)
 //
 
 // Capture and cast smem_ptr_flag Layouts to offset-0 layouts
+template <class SwizzleFn, int B, class Layout>
+CUTE_HOST_DEVICE
+void
+print_layout(ComposedLayout<SwizzleFn,smem_ptr_flag_bits<B>,Layout> const& layout)
+{
+  print_layout(as_position_independent_swizzle_layout(layout));
+}
+
 template <class SwizzleFn, int B, class Layout>
 CUTE_HOST_DEVICE
 void
@@ -141,6 +188,12 @@ template <int B>
 CUTE_HOST_DEVICE void print(smem_ptr_flag_bits<B> ptr)
 {
   printf("smem_ptr[%db](unset)", B);
+}
+
+template <int S, int B>
+CUTE_HOST_DEVICE void print(smem_sparse_ptr_flag_bits<S,B>)
+{
+  printf("smem_sparse<%d>_ptr[%db](unset)", S, B);
 }
 
 } // end namespace cute
