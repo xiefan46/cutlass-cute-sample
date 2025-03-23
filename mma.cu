@@ -48,9 +48,12 @@ __global__ void mma_simple(T *Cptr, const T *Aptr, const T *Bptr)
         // (MMA, MMA_M, MMA_N)
         PRINT("tCrC.shape", tCrC.shape());
 
-        print(tArA.shape());
+        printf(tArA.shape());
 
     }
+    
+    PRINT("tArA.shape", tArA.shape());
+    printf(tArA.shape());
 
     cute::copy(tAgA, tArA);
     cute::copy(tBgB, tBrB);
