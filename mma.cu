@@ -52,7 +52,7 @@ __global__ void mma_simple(T *Cptr, const T *Aptr, const T *Bptr)
 
     if (thread0()) {
       cute::print(tArA.shape());
-        cute::print(tArA);
+      cute::print(tArA);
     }
 
     cute::print(tArA.shape());
@@ -157,6 +157,8 @@ int main()
     print("\n");
 
     mma_simple<T, MMA, M, N, K><<<1, block>>>(Cptr, Aptr, Bptr);
+
+    cudaDeviceSynchronize();
 
 //    cudaEventRecord(start);
 //    int count = 10;
