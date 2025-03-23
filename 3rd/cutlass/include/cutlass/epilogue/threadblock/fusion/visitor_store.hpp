@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -72,6 +72,12 @@ struct VisitorAuxStore{
   static constexpr Params
   to_underlying_arguments(ProblemShape const& problem_shape, Arguments const& args, void* workspace) {
     return args;
+  }
+
+  template <class ProblemShape>
+  static size_t
+  get_workspace_size(ProblemShape const& problem_shape, Arguments const& args) {
+    return 0;
   }
 
   struct SharedStorage {};
@@ -258,6 +264,12 @@ struct VisitorColReduction {
     return args;
   }
 
+  template <class ProblemShape>
+  static size_t
+  get_workspace_size(ProblemShape const& problem_shape, Arguments const& args) {
+    return 0;
+  }
+
   struct SharedStorage { };
 
   CUTLASS_HOST_DEVICE
@@ -398,6 +410,12 @@ struct VisitorRowReduction {
     return args;
   }
 
+  template <class ProblemShape>
+  static size_t
+  get_workspace_size(ProblemShape const& problem_shape, Arguments const& args) {
+    return 0;
+  }
+
   using SharedStorageShape = decltype(select<0,1,2,3,5,8,10>(typename ThreadMap::ThreadMapShape{}));
 
   struct SharedStorage {
@@ -501,10 +519,7 @@ struct VisitorRowReduction {
       // Guard against uses of the existing SMEM tile
       __syncthreads();
 
-      CUTLASS_PRAGMA_UNROLL
-      for (int i = 0; i < size(tRS_rSrc); ++i) {
-        copy_vec<VecType>(filter(tRS_rSrc), filter(tRS_sRows));
-      }
+      copy(tRS_rSrc, tRS_sRows);
 
       __syncthreads();
 
@@ -670,6 +685,12 @@ struct VisitorScalarReduction {
   static constexpr Params
   to_underlying_arguments(ProblemShape const& problem_shape, Arguments const& args, void* workspace) {
     return args;
+  }
+
+  template <class ProblemShape>
+  static size_t
+  get_workspace_size(ProblemShape const& problem_shape, Arguments const& args) {
+    return 0;
   }
 
   struct SharedStorage { };

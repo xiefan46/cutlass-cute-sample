@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -33,18 +33,9 @@
     \brief Basic include for CUTLASS.
 */
 
-/*
-  Note:  CUTLASS 3x increases the host compiler requirements to C++17. However, certain
-         existing integrations of CUTLASS require C++11 host compilers.
-
-         Until this requirement can be lifted, certain headers with this annotation are required
-         to be remain consistent with C++11 syntax.
-
-         C++11 compatibility is enforced by `cutlass_test_unit_core_cpp11`.
-*/
-
 #pragma once
 
+#include "cutlass/arch/synclog.hpp"
 #include "cutlass/detail/helper_macros.hpp"
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////

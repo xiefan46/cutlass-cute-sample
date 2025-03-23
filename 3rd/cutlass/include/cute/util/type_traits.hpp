@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -44,7 +44,7 @@
 #include <limits>       // numeric_limits
 #endif
 
-#include <cute/config.hpp>
+#include <cute/config.hpp> // CUTE_STL_NAMESPACE
 
 namespace cute
 {
@@ -79,11 +79,14 @@ using CUTE_STL_NAMESPACE::is_const_v;
 using CUTE_STL_NAMESPACE::is_volatile;
 using CUTE_STL_NAMESPACE::is_volatile_v;
 
+// Defined in cute/numeric/integral_constant.hpp
 // using CUTE_STL_NAMESPACE::true_type;
 // using CUTE_STL_NAMESPACE::false_type;
 
 using CUTE_STL_NAMESPACE::conditional;
 using CUTE_STL_NAMESPACE::conditional_t;
+
+using CUTE_STL_NAMESPACE::add_const_t;
 
 using CUTE_STL_NAMESPACE::remove_const_t;
 using CUTE_STL_NAMESPACE::remove_cv_t;
@@ -101,8 +104,18 @@ using CUTE_STL_NAMESPACE::is_lvalue_reference_v;
 using CUTE_STL_NAMESPACE::is_reference;
 using CUTE_STL_NAMESPACE::is_trivially_copyable;
 
+using CUTE_STL_NAMESPACE::is_convertible;
+using CUTE_STL_NAMESPACE::is_convertible_v;
+
 using CUTE_STL_NAMESPACE::is_same;
 using CUTE_STL_NAMESPACE::is_same_v;
+
+using CUTE_STL_NAMESPACE::is_constructible;
+using CUTE_STL_NAMESPACE::is_constructible_v;
+using CUTE_STL_NAMESPACE::is_default_constructible;
+using CUTE_STL_NAMESPACE::is_default_constructible_v;
+using CUTE_STL_NAMESPACE::is_standard_layout;
+using CUTE_STL_NAMESPACE::is_standard_layout_v;
 
 using CUTE_STL_NAMESPACE::is_arithmetic;
 using CUTE_STL_NAMESPACE::is_unsigned;
@@ -122,25 +135,42 @@ using CUTE_STL_NAMESPACE::is_empty_v;
 
 using CUTE_STL_NAMESPACE::invoke_result_t;
 
+using CUTE_STL_NAMESPACE::common_type;
+using CUTE_STL_NAMESPACE::common_type_t;
+
+using CUTE_STL_NAMESPACE::remove_pointer;
+using CUTE_STL_NAMESPACE::remove_pointer_t;
+
+using CUTE_STL_NAMESPACE::add_pointer;
+using CUTE_STL_NAMESPACE::add_pointer_t;
+
+using CUTE_STL_NAMESPACE::alignment_of;
+using CUTE_STL_NAMESPACE::alignment_of_v;
+
+using CUTE_STL_NAMESPACE::is_pointer;
+using CUTE_STL_NAMESPACE::is_pointer_v;
+
 // <utility>
 using CUTE_STL_NAMESPACE::declval;
 
-template< class T >
-constexpr T&& forward(remove_reference_t<T>& t) noexcept
+template <class T>
+CUTE_HOST_DEVICE constexpr
+T&& forward(remove_reference_t<T>& t) noexcept
 {
   return static_cast<T&&>(t);
 }
 
-template< class T >
-constexpr T&& forward(remove_reference_t<T>&& t) noexcept
+template <class T>
+CUTE_HOST_DEVICE constexpr
+T&& forward(remove_reference_t<T>&& t) noexcept
 {
-  static_assert(! is_lvalue_reference_v<T>,
-    "T cannot be an lvalue reference (e.g., U&).");
+  static_assert(! is_lvalue_reference_v<T>, "T cannot be an lvalue reference (e.g., U&).");
   return static_cast<T&&>(t);
 }
 
-template< class T >
-constexpr remove_reference_t<T>&& move( T&& t ) noexcept
+template <class T>
+CUTE_HOST_DEVICE constexpr
+remove_reference_t<T>&& move(T&& t) noexcept
 {
   return static_cast<remove_reference_t<T>&&>(t);
 }
@@ -193,8 +223,6 @@ struct tuple_size;
 template <class T>
 struct tuple_size<T,void_t<typename CUTE_STL_NAMESPACE::tuple_size<T>::type>> : CUTE_STL_NAMESPACE::integral_constant<size_t, CUTE_STL_NAMESPACE::tuple_size<T>::value> {};
 
-// S =  : std::integral_constant<std::size_t, std::tuple_size<T>::value> {};
-
 template <class T>
 constexpr size_t tuple_size_v = tuple_size<T>::value;
 
@@ -241,5 +269,31 @@ CUTE_HOST_DEVICE constexpr auto
 is_valid(F&&, Args&&...) {
   return detail::is_valid_impl<F&&, Args&&...>(int{});
 }
+
+template <bool B, template<class...> class True, template<class...> class False>
+struct conditional_template {
+  template <class... U>
+  using type = True<U...>;
+};
+
+template <template<class...> class True, template<class...> class False>
+struct conditional_template<false, True, False> {
+  template <class... U>
+  using type = False<U...>;
+};
+
+//
+// is_any_of
+//
+
+// Member `value` is true if and only if T is same as (is_same_v) at least one of the types in Us
+template <class T, class... Us>
+struct is_any_of {
+  constexpr static bool value = (... || CUTE_STL_NAMESPACE::is_same_v<T, Us>);
+};
+
+// Is true if and only if T is same as (is_same_v) at least one of the types in Us
+template <class T, class... Us>
+inline constexpr bool is_any_of_v = is_any_of<T, Us...>::value;
 
 } // end namespace cute

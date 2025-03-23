@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,14 +30,13 @@
  **************************************************************************************************/
 #pragma once
 
-#include <cute/config.hpp>
-#include <cute/arch/copy.hpp>
-
-#include <cute/tensor.hpp>
-
-#include <cute/atom/copy_traits.hpp>
-
-#include <cute/util/type_traits.hpp>
+#include <cute/config.hpp>                     // CUTE_HOST_DEVICE
+#include <cute/tensor_impl.hpp>                // cute::Tensor
+#include <cute/util/type_traits.hpp>           // cute::__CUTE_REQUIRES
+#include <cute/container/tuple.hpp>            // cute::is_tuple
+#include <cute/numeric/integral_constant.hpp>  // cute::is_constant, cute::is_integral
+#include <cute/atom/copy_traits.hpp>           // cute::Copy_Traits
+#include <cute/atom/mma_atom.hpp>              // cute::TiledMMA
 
 namespace cute
 {
@@ -45,12 +44,12 @@ namespace cute
 template <class... Args>
 struct Copy_Atom;
 
-template <class CopyOperation, class T>
-struct Copy_Atom<CopyOperation, T> : Copy_Atom<Copy_Traits<CopyOperation>, T>
+template <class CopyOperation, class CopyInternalType>
+struct Copy_Atom<CopyOperation, CopyInternalType> : Copy_Atom<Copy_Traits<CopyOperation>, CopyInternalType>
 {};
 
-template <class... Args, class T>
-struct Copy_Atom<Copy_Traits<Args...>, T>
+template <class... Args, class CopyInternalType>
+struct Copy_Atom<Copy_Traits<Args...>, CopyInternalType>
   : Copy_Traits<Args...>
 {
   using Traits = Copy_Traits<Args...>;
@@ -61,11 +60,11 @@ struct Copy_Atom<Copy_Traits<Args...>, T>
   using BitLayoutDst = typename Traits::DstLayout;
   using BitLayoutRef = typename Traits::RefLayout;
 
-  using ValType = T;
+  using ValType = CopyInternalType;
 
-  using ValLayoutSrc = decltype(upcast<sizeof_bits<ValType>::value>(BitLayoutSrc{}));
-  using ValLayoutDst = decltype(upcast<sizeof_bits<ValType>::value>(BitLayoutDst{}));
-  using ValLayoutRef = decltype(upcast<sizeof_bits<ValType>::value>(BitLayoutRef{}));
+  using ValLayoutSrc = decltype(recast_layout<uint1_t, ValType>(BitLayoutSrc{}));
+  using ValLayoutDst = decltype(recast_layout<uint1_t, ValType>(BitLayoutDst{}));
+  using ValLayoutRef = decltype(recast_layout<uint1_t, ValType>(BitLayoutRef{}));
 
   CUTE_STATIC_ASSERT_V(size<0>(ValLayoutSrc{}) == size(ThrID{}), "CopyOperation is not valid for Src of ValType.");
   CUTE_STATIC_ASSERT_V(size<0>(ValLayoutDst{}) == size(ThrID{}), "CopyOperation is not valid for Dst of ValType.");
@@ -79,8 +78,8 @@ struct Copy_Atom<Copy_Traits<Args...>, T>
   CUTE_HOST_DEVICE
   auto
   with(TraitsArgs&&... args) const {
-    auto traits = Traits::with(std::forward<TraitsArgs>(args)...);
-    return Copy_Atom<decltype(traits), T>{traits};
+    auto traits = Traits::with(static_cast<TraitsArgs&&>(args)...);
+    return Copy_Atom<decltype(traits), CopyInternalType>{traits};
   }
 
   //
@@ -88,29 +87,29 @@ struct Copy_Atom<Copy_Traits<Args...>, T>
   //
 
   // Check and call instruction, or recurse
-  template <class TS, class SLayout,
-            class TD, class DLayout>
+  template <class SEngine, class SLayout,
+            class DEngine, class DLayout>
   CUTE_HOST_DEVICE
   void
-  call(Tensor<TS,SLayout> const& src,
-       Tensor<TD,DLayout>      & dst) const
+  call(Tensor<SEngine,SLayout> const& src,
+       Tensor<DEngine,DLayout>      & dst) const
   {
     static_assert(SLayout::rank == 1, "Expected rank-1 src tensor");
     static_assert(DLayout::rank == 1, "Expected rank-1 dst tensor");
 
     if constexpr (is_constant<NumValSrc, decltype(size(src))>::value ||
                   is_constant<NumValDst, decltype(size(dst))>::value) {
-      // Dispatch to unpack for instruction
-      return copy_unpack(*this, src, dst);
-    } else
-    if constexpr (is_tuple<decltype(shape(src))>::value &&
-                  is_tuple<decltype(shape(dst))>::value) {
+      // Dispatch to unpack to execute instruction
+      return copy_unpack(static_cast<Traits const&>(*this), src, dst);
+    } else if constexpr (is_tuple<decltype(shape(src))>::value &&
+                         is_tuple<decltype(shape(dst))>::value) {
       // If the size of the src/dst doesn't match the instruction,
       //   recurse this rank-1 layout by peeling off the mode
       //   ((A,B,C,...)) -> (A,B,C,...)
       return copy(*this, tensor<0>(src), tensor<0>(dst));
     } else {
-      static_assert(sizeof(TS) < 0, "No instruction match and no recursion possible.");
+      static_assert(dependent_false<SEngine>,
+                    "CopyAtom: Src/Dst partitioning does not match the instruction requirement.");
     }
   }
 
@@ -135,7 +134,7 @@ struct ThrCopy;
 
 template <class Copy_Atom,
           class LayoutCopy_TV,  // (tid,vid) -> coord   [Need not be 2D...]
-          class ShapeTile_MN>   // coord space
+          class ShapeTiler_MN>  // coord space
 struct TiledCopy : Copy_Atom
 {
   // Layout information from the CopyAtom
@@ -148,8 +147,7 @@ struct TiledCopy : Copy_Atom
   using AtomNumVal = decltype(size<1>(AtomLayoutRef{}));
 
   // Layout information for the TiledCopy
-  using Tiler_MN       = ShapeTile_MN;
-  using TiledShape_MN  = decltype(shape(ShapeTile_MN{}));
+  using Tiler_MN       = ShapeTiler_MN;
   using TiledLayout_TV = LayoutCopy_TV;
   using TiledNumThr    = decltype(size<0>(TiledLayout_TV{}));
   using TiledNumVal    = decltype(size<1>(TiledLayout_TV{}));
@@ -172,12 +170,9 @@ struct TiledCopy : Copy_Atom
   auto
   tidfrg_S(STensor&& stensor)
   {
-    constexpr int R = remove_cvref_t<STensor>::rank;
-    static_assert(R >= rank_v<TiledShape_MN>, "Rank of tensor to be partitioned too small.");
-    // Generalize the dimension checks for arbitrary rank
-    //CUTE_STATIC_ASSERT_V(size<0>(stensor) % size<0>(TiledShape_MNK{}) == Int<0>{});
-    //CUTE_STATIC_ASSERT_V(size<1>(stensor) % size<1>(TiledShape_MNK{}) == Int<0>{});
+    CUTE_STATIC_ASSERT_V(rank(stensor) >= rank(Tiler_MN{}), "Rank of tensor to be partitioned too small.");
 
+    // Tile the stensor and compute the (src-thr, src-val) -> (ref-thr, ref-val) layout
     return tile2thrfrg(zipped_divide(stensor,Tiler_MN{}), right_inverse(AtomLayoutRef{}).compose(AtomLayoutSrc{}));
   }
 
@@ -196,17 +191,14 @@ struct TiledCopy : Copy_Atom
   auto
   tidfrg_D(DTensor&& dtensor)
   {
-    constexpr int R = remove_cvref_t<DTensor>::rank;
-    static_assert(R >= rank_v<TiledShape_MN>, "Rank of tensor to be partitioned too small.");
-    // Generalize the dimension checks for arbitrary rank
-    //CUTE_STATIC_ASSERT_V(size<0>(stensor) % size<0>(TiledShape_MNK{}) == Int<0>{});
-    //CUTE_STATIC_ASSERT_V(size<1>(stensor) % size<1>(TiledShape_MNK{}) == Int<0>{});
+    CUTE_STATIC_ASSERT_V(rank(dtensor) >= rank(Tiler_MN{}), "Rank of tensor to be partitioned too small.");
 
+    // Tile the dtensor and compute the (dst-thr, dst-val) -> (ref-thr, ref-val) layout
     return tile2thrfrg(zipped_divide(dtensor,Tiler_MN{}), right_inverse(AtomLayoutRef{}).compose(AtomLayoutDst{}));
   }
 
   // Tile a tensor or a layout from shape
-  //   (Tile,(RestM,RestN,...))
+  //   ((TileM,TileN,...), (RestM,RestN,...))
   // to shape
   //   ((ThrV,ThrX),FrgV,(RestM,RestN,...))
   template <class Tensor, class Ref2TrgLayout>
@@ -232,7 +224,7 @@ struct TiledCopy : Copy_Atom
 
     // Transform the tile mode
     auto tv_tensor = tensor.compose(thrval2mn, _);
-    // ((thrid,val),(RM,RN,...))
+    // ((thrid,val),(RestM,RestN,...))
 
     // Unfold and return
     return tv_tensor(make_coord(_,_), _);
@@ -253,7 +245,7 @@ struct TiledCopy : Copy_Atom
 
     auto V = size<0>(tensor);
 
-    auto frg_layout_mn = upcast<TiledNumThr{} * V>(right_inverse(TiledLayout_TV{}).with_shape(TiledShape_MN{}));
+    auto frg_layout_mn = upcast<TiledNumThr{} * V>(right_inverse(TiledLayout_TV{}).with_shape(shape(Tiler_MN{})));
     // (m,n) -> v_idx -- The shape and order of the V inside of TiledLayout_TV
 
     auto frg_layout_v = zipped_divide(logical_product(make_layout(V), right_inverse(frg_layout_mn)), make_layout(AtomNumVal{}));
@@ -278,7 +270,7 @@ struct TiledCopy : Copy_Atom
   get_layoutS_TV()
   {
     // (M,N) -> (M,N)
-    auto ref_S = make_layout(make_shape(TiledShape_MN{}, Int<1>{}));
+    auto ref_S = make_layout(make_shape(shape(Tiler_MN{}), Int<1>{}));
     // (thr_idx,val_idx) -> (M,N)
     return tile2thrfrg(ref_S, right_inverse(AtomLayoutRef{}).compose(AtomLayoutSrc{}))(_,_,Int<0>{});
   }
@@ -290,7 +282,7 @@ struct TiledCopy : Copy_Atom
     // (thr_idx,val_idx) -> (M,N)
     auto layoutS_TV = get_layoutS_TV();
     // (M,K) -> (thr_idx,val_idx)
-    auto layoutS_MK = right_inverse(layoutS_TV).with_shape(TiledShape_MN{});
+    auto layoutS_MK = right_inverse(layoutS_TV).with_shape(shape(Tiler_MN{}));
 
     // athrid = (v,m,k) -> thr_idx
     auto thrID_S = make_layout(size<0>(TiledLayout_TV{}));
@@ -303,7 +295,7 @@ struct TiledCopy : Copy_Atom
   get_layoutD_TV()
   {
     // (M,N) -> (M,N)
-    auto ref_D = make_layout(make_shape(TiledShape_MN{}, Int<1>{}));
+    auto ref_D = make_layout(make_shape(shape(Tiler_MN{}), Int<1>{}));
     // (thr_idx,val_idx) -> (M,N)
     return tile2thrfrg(ref_D, right_inverse(AtomLayoutRef{}).compose(AtomLayoutDst{}))(_,_,Int<0>{});
   }
@@ -315,7 +307,7 @@ struct TiledCopy : Copy_Atom
     // (thr_idx,val_idx) -> (M,N)
     auto layoutD_TV = get_layoutD_TV();
     // (M,K) -> (thr_idx,val_idx)
-    auto layoutD_MK = right_inverse(layoutD_TV).with_shape(TiledShape_MN{});
+    auto layoutD_MK = right_inverse(layoutD_TV).with_shape(shape(Tiler_MN{}));
 
     // athrid = (v,m,k) -> thr_idx
     auto thrID_D = make_layout(size<0>(TiledLayout_TV{}));
@@ -353,20 +345,20 @@ struct ThrCopy
   template <class STensor>
   CUTE_HOST_DEVICE
   auto
-  partition_S(STensor&& stensor) {
+  partition_S(STensor&& stensor) const {
     //static_assert(sizeof(typename remove_cvref_t<STensor>::value_type) == sizeof(typename TiledCopy::ValType),
     //              "Expected ValType for tiling SrcTensor.");
-    auto thr_tensor = make_tensor(std::forward<STensor>(stensor).data(), TiledCopy::tidfrg_S(stensor.layout()));
+    auto thr_tensor = make_tensor(static_cast<STensor&&>(stensor).data(), TiledCopy::tidfrg_S(stensor.layout()));
     return thr_tensor(thr_idx_, _, repeat<rank_v<STensor>>(_));
   }
 
   template <class DTensor>
   CUTE_HOST_DEVICE
   auto
-  partition_D(DTensor&& dtensor) {
+  partition_D(DTensor&& dtensor) const {
     //static_assert(sizeof(typename remove_cvref_t<DTensor>::value_type) == sizeof(typename TiledCopy::ValType),
     //              "Expected ValType for tiling DstTensor.");
-    auto thr_tensor = make_tensor(std::forward<DTensor>(dtensor).data(), TiledCopy::tidfrg_D(dtensor.layout()));
+    auto thr_tensor = make_tensor(static_cast<DTensor&&>(dtensor).data(), TiledCopy::tidfrg_D(dtensor.layout()));
     return thr_tensor(thr_idx_, _, repeat<rank_v<DTensor>>(_));
   }
 
@@ -376,7 +368,7 @@ struct ThrCopy
   retile_S(STensor&& stensor) {
     // static_assert(sizeof(typename remove_cvref_t<STensor>::value_type) == sizeof(typename TiledCopy::ValType),
     //               "Expected ValType for tiling SrcTensor.");
-    return make_tensor(std::forward<STensor>(stensor).data(), TiledCopy::retile(stensor.layout()));
+    return make_tensor(static_cast<STensor&&>(stensor).data(), TiledCopy::retile(stensor.layout()));
   }
 
   template <class DTensor>
@@ -385,7 +377,7 @@ struct ThrCopy
   retile_D(DTensor&& dtensor) {
     // static_assert(sizeof(typename remove_cvref_t<DTensor>::value_type) == sizeof(typename TiledCopy::ValType),
     //               "Expected ValType for tiling DstTensor.");
-    return make_tensor(std::forward<DTensor>(dtensor).data(), TiledCopy::retile(dtensor.layout()));
+    return make_tensor(static_cast<DTensor&&>(dtensor).data(), TiledCopy::retile(dtensor.layout()));
   }
 };
 
@@ -406,51 +398,44 @@ make_tiled_copy_impl(Copy_Atom<Args...> const& atom,
 // These tile the Copy_Atom as a whole
 //
 
-template <class... Args,
-          class TiledMMA>
+template <class... CArgs, class... MArgs>
 CUTE_HOST_DEVICE
 auto
-make_tiled_copy_A(Copy_Atom<Args...> const& copy_atom,
-                  TiledMMA           const& tiled_mma)
+make_tiled_copy_A(Copy_Atom<CArgs...> const& copy_atom,
+                  TiledMMA<MArgs...>  const& mma)
 {
-  using MNK = typename TiledMMA::TiledShape_MNK;
-  return make_tiled_copy_impl(copy_atom, tiled_mma.get_layoutA_TV(), make_shape(size<0>(MNK{}),size<2>(MNK{})));
+  return make_tiled_copy_impl(copy_atom, mma.get_layoutA_TV(), make_shape(tile_size<0>(mma),tile_size<2>(mma)));
 }
 
-template <class... Args,
-          class TiledMMA>
+template <class... CArgs, class... MArgs>
 CUTE_HOST_DEVICE
 auto
-make_tiled_copy_B(Copy_Atom<Args...> const& copy_atom,
-                  TiledMMA           const& tiled_mma)
+make_tiled_copy_B(Copy_Atom<CArgs...> const& copy_atom,
+                  TiledMMA<MArgs...>  const& mma)
 {
-  using MNK = typename TiledMMA::TiledShape_MNK;
-  return make_tiled_copy_impl(copy_atom, tiled_mma.get_layoutB_TV(), make_shape(size<1>(MNK{}),size<2>(MNK{})));
+  return make_tiled_copy_impl(copy_atom, mma.get_layoutB_TV(), make_shape(tile_size<1>(mma),tile_size<2>(mma)));
 }
 
-template <class... Args,
-          class TiledMMA>
+template <class... CArgs, class... MArgs>
 CUTE_HOST_DEVICE
 auto
-make_tiled_copy_C(Copy_Atom<Args...> const& copy_atom,
-                  TiledMMA           const& tiled_mma)
+make_tiled_copy_C(Copy_Atom<CArgs...> const& copy_atom,
+                  TiledMMA<MArgs...>  const& mma)
 {
-  using MNK = typename TiledMMA::TiledShape_MNK;
-  return make_tiled_copy_impl(copy_atom, tiled_mma.get_layoutC_TV(), make_shape(size<0>(MNK{}),size<1>(MNK{})));
+  return make_tiled_copy_impl(copy_atom, mma.get_layoutC_TV(), make_shape(tile_size<0>(mma),tile_size<1>(mma)));
 }
 
 // returns the smallest tiled copy that can retile LayoutC_TV
 // for use with pipelined epilogues with subtiled stores
-template <class... Args,
-          class TiledMMA>
+template <class... CArgs, class... MArgs>
 CUTE_HOST_DEVICE
 auto
-make_tiled_copy_C_atom(Copy_Atom<Args...> const& copy_atom,
-                       TiledMMA           const& tiled_mma)
+make_tiled_copy_C_atom(Copy_Atom<CArgs...> const& copy_atom,
+                       TiledMMA<MArgs...>  const& mma)
 {
   // Truncate the V-layout to just the Copy_Atom, keep the V-order
-  auto layoutC_TV = tiled_mma.get_layoutC_TV();
-  auto copy_V     = Int<Copy_Atom<Args...>::NumValSrc>{};
+  auto layoutC_TV = mma.get_layoutC_TV();
+  auto copy_V     = Int<Copy_Atom<CArgs...>::NumValSrc>{};
   CUTE_STATIC_ASSERT_V(copy_V <= size<1>(layoutC_TV));
   auto layout_TV  = composition(layoutC_TV, make_layout(make_shape(size<0>(layoutC_TV), copy_V)));
 
@@ -458,8 +443,7 @@ make_tiled_copy_C_atom(Copy_Atom<Args...> const& copy_atom,
 
   // Tiler -- Find the active elements in the MMA tensor and generate a tiler to extract them
   // Convert to the awkward by-mode tiler to preserve the modes of the tiled MMA
-  using MNK = typename TiledMMA::TiledShape_MNK;
-  auto mma_tiler = make_shape(size<0>(MNK{}),size<1>(MNK{}));
+  auto mma_tiler = make_shape(tile_size<0>(mma),tile_size<1>(mma));
   auto mma_zeros = repeat_like(mma_tiler, Int<0>{});
 
   auto tiler = transform(make_seq<rank(mma_tiler)>{}, [&](auto i) {
@@ -474,15 +458,13 @@ make_tiled_copy_C_atom(Copy_Atom<Args...> const& copy_atom,
   // (tid,vid) -> tile_coord
   auto layout_tv = composition(left_inverse(tile2mma), layout_TV);
 
-
-  using MNK = typename TiledMMA::TiledShape_MNK;
   return make_tiled_copy_impl(copy_atom, layout_tv, tiler);
 }
 
-/** Produce a TiledCopy from logical thread and values layouts. 
- * The thread and value layouts map coordinates to thr_idx and val_idx. 
+/** Produce a TiledCopy from logical thread and values layouts.
+ * The thread and value layouts map coordinates to thr_idx and val_idx.
  *    The product of these layouts is taken to produce the TV layout and the Tiler.
- * Useful when threads and values need very specific mappings onto coordinates 
+ * Useful when threads and values need very specific mappings onto coordinates
  *    in the target tensors.
  */
 template <class... Args,
@@ -494,32 +476,36 @@ make_tiled_copy(Copy_Atom<Args...> const& copy_atom,
                 ThrLayout          const& thr_layout = {},     // (m,n) -> thr_idx
                 ValLayout          const& val_layout = {})     // (m,n) -> val_idx
 {
-  constexpr int R = cute::max(rank_v<ThrLayout>, rank_v<ValLayout>);
-
-  auto thr_layout_mn  = append<R>(thr_layout, Layout<_1>{});
-  auto val_layout_mn  = append<R>(val_layout, Layout<_1>{});
-
   // Take the raked_products to compute the Layout_MN
-  auto layout_mn = raked_product(thr_layout_mn, val_layout_mn);
+  // (M,N) -> (thr_idx, val_idx)
+  auto layout_mn = raked_product(thr_layout, val_layout);
+  // (thr_idx, val_idx) -> (M,N)
   auto layout_tv = right_inverse(layout_mn).with_shape(make_shape(size(thr_layout), size(val_layout)));
-  //   print("thr_layout: "); print(thr_layout_mn); print("\n");
-  //   print("val_layout: "); print(val_layout_mn); print("\n");
-  //   print("layout_mn : "); print(layout_mn);     print("\n");
-  //   print("layout_tv : "); print(layout_tv);     print("\n");
+  // Tiler for extracting relevant elements
+  // (M,N) -> tensor coord
+  auto tiler = product_each(shape(layout_mn));
 
-  return make_tiled_copy_impl(copy_atom, layout_tv, product_each(shape(layout_mn)));
+#if 0
+  print("thr_layout: "); print(thr_layout); print("\n");
+  print("val_layout: "); print(val_layout); print("\n");
+  print("layout_mn : "); print(layout_mn);  print("\n");
+  print("layout_tv : "); print(layout_tv);  print("\n");
+  print("tiler     : "); print(tiler);      print("\n");
+#endif
+
+  return make_tiled_copy_impl(copy_atom, layout_tv, tiler);
 }
 
-/** Produce a TiledCopy from thread and value offset maps. 
+/** Produce a TiledCopy from thread and value offset maps.
  * The TV Layout maps threads and values to the codomain of the data_layout.
- * It is verified that the intended codomain is valid within data_layout. 
+ * It is verified that the intended codomain is valid within data_layout.
  * Useful when threads and values don't care about owning specific coordinates, but
  *   care more about the vector-width and offsets between them.
  */
 template <class... Args, class AtomTVLayout, class DataLayout>
 CUTE_HOST_DEVICE constexpr
 auto
-make_cotiled_copy(Copy_Atom<Args...> const& copy_atom, 
+make_cotiled_copy(Copy_Atom<Args...> const& copy_atom,
                   AtomTVLayout const& atom_tv_layout,   // atom (thr,val) -> data addr
                   DataLayout   const& data_layout)      // coord          -> data addr    The target layout
 {
@@ -535,15 +521,6 @@ make_cotiled_copy(Copy_Atom<Args...> const& copy_atom,
   // Check validity
   CUTE_STATIC_ASSERT_V(coalesce(composition(data_layout, layout<1>(layout_tv_data))) == coalesce(layout<1>(atom_tv_layout)),
                        "The memory pointed to by AtomTVLayout does not exist in the DataLayout.");
-
-#if 0
-  if (thread0()) {
-    print("data_layout        : "); print(data_layout); print("\n");
-    print("atom_tv_layout     : "); print(atom_tv_layout); print("\n");
-    print("layout_tv_data     : "); print(layout_tv_data); print("\n");
-  }
-#endif
-
   //
   // Tiler -- Find the active elements in the DATA tensor and generate a tiler to extract them
   //
@@ -566,15 +543,6 @@ make_cotiled_copy(Copy_Atom<Args...> const& copy_atom,
 
   // (tid,vid) -> tile_coord
   auto layout_tv = composition(left_inverse(tile2data), layout_tv_data);
-
-#if 0
-  if (thread0()) {
-    print("tiler              : "); print(tiler); print("\n");
-    print("tile2data          : "); print(tile2data); print("\n");
-    print("layout_tv          : "); print(layout_tv); print("\n");
-  }
-#endif
-
   return make_tiled_copy_impl(copy_atom, layout_tv, tiler);
 }
 
@@ -610,7 +578,7 @@ CUTE_HOST_DEVICE constexpr
 auto
 tile_size(TiledCopy<Args...> const&)
 {
-  return size<I...>(typename TiledCopy<Args...>::TiledShape_MN{});
+  return size<I...>(typename TiledCopy<Args...>::Tiler_MN{});
 }
 
 // The number of threads involved in a TiledCopy
@@ -637,7 +605,7 @@ print(Copy_Atom<Copy_Traits<Args...>, T> const&)
   print("  ValLayoutSrc: "); print(typename Atom::ValLayoutSrc{}); print("\n");
   print("  ValLayoutDst: "); print(typename Atom::ValLayoutDst{}); print("\n");
   print("  ValLayoutRef: "); print(typename Atom::ValLayoutRef{}); print("\n");
-  print("  ValueType:    %db\n", int(sizeof_bits<typename Atom::ValType>::value));
+  print("  ValueType:    "); print(sizeof_bits<typename Atom::ValType>::value); print("b\n");
 }
 
 template <class Atom, class... Args>
@@ -655,15 +623,19 @@ print(TiledCopy<Atom, Args...> const& copy, char const* pad = "")
 template <class TiledCopy, class ThrIdx>
 CUTE_HOST_DEVICE
 void
-print(ThrCopy<TiledCopy, ThrIdx> const&)
+print(ThrCopy<TiledCopy, ThrIdx> const& thr_copy)
 {
+  print("ThrCopy\n");
+  print("  ThrIdx: "); print(thr_copy.thr_idx_); print("\n");
   print(TiledCopy{});
 }
 
-template <class... Args>
+// TiledCopy to LaTeX TikZ
+template <class... Args, class TikzColorFn = TikzColor_TV>
 CUTE_HOST_DEVICE
 auto
-print_latex(TiledCopy<Args...> const& copy)
+print_latex(TiledCopy<Args...> const& copy,
+            TikzColorFn color = {})              // lambda(thr_idx,val_idx) -> tikz color string
 {
   auto [layoutS_MN, thrID_S] = copy.get_layoutS_MN();
   auto [layoutD_MN, thrID_D] = copy.get_layoutD_MN();
@@ -672,13 +644,15 @@ print_latex(TiledCopy<Args...> const& copy)
                    layoutD_MN, thrID_D);
 }
 
-// MNK Copy Layout to Latex TIKZ -- 8-value color coded by thread
+// MNK Copy Layout to LaTeX TikZ
 template <class LayoutS, class ThrIDS,
-          class LayoutD, class ThrIDD>
+          class LayoutD, class ThrIDD,
+          class TikzColorFn = TikzColor_TV>
 CUTE_HOST_DEVICE
 void
 print_latex_copy(LayoutS const& S, ThrIDS const& TS,  // (m,n) -> (tid,vid)  and  tid -> thr_idx
-                 LayoutD const& D, ThrIDD const& TD)  // (m,n) -> (tid,vid)  and  tid -> thr_idx
+                 LayoutD const& D, ThrIDD const& TD,  // (m,n) -> (tid,vid)  and  tid -> thr_idx
+                 TikzColorFn color = {})              // lambda(thr_idx,val_idx) -> tikz color string
 {
   CUTE_STATIC_ASSERT_V(rank(S) == Int<2>{});
   CUTE_STATIC_ASSERT_V(rank(D) == Int<2>{});
@@ -686,33 +660,17 @@ print_latex_copy(LayoutS const& S, ThrIDS const& TS,  // (m,n) -> (tid,vid)  and
   assert(size<0>(S) == size<0>(D));
   assert(size<1>(S) == size<1>(D));
 
-  char const* latex_header =
-      "\\documentclass{standalone}\n"
-      "\\usepackage{tikz}\n"
-      "\\usetikzlibrary{external}\n"
-      "\\tikzexternalize\n"
-      "\\begin{document}\n"
-      "\\begin{tikzpicture}[x={(0cm,-1cm)},y={(1cm,0cm)},box/.style={rectangle,draw=black,thick,minimum size=1cm,anchor=center}]\n\n";
-  char const* latex_footer =
-      "\\end{tikzpicture}\n"
-      "\\end{document}\n";
-
-  char const* color_map[8] = {"{rgb,255:red,175;green,175;blue,255}",
-                              "{rgb,255:red,175;green,255;blue,175}",
-                              "{rgb,255:red,255;green,255;blue,175}",
-                              "{rgb,255:red,255;green,175;blue,175}",
-                              "{rgb,255:red,210;green,210;blue,255}",
-                              "{rgb,255:red,210;green,255;blue,210}",
-                              "{rgb,255:red,255;green,255;blue,210}",
-                              "{rgb,255:red,255;green,210;blue,210}",};
-
-  // Header
+  // Commented prints
   printf("%% LayoutS: "); print(S);  printf("\n");
   printf("%% ThrIDS : "); print(TS); printf("\n");
   printf("%% LayoutD: "); print(D);  printf("\n");
   printf("%% ThrIDD : "); print(TD); printf("\n\n");
 
-  printf(latex_header);
+  // Header
+  printf("\\documentclass[convert]{standalone}\n"
+         "\\usepackage{tikz}\n\n"
+         "\\begin{document}\n"
+         "\\begin{tikzpicture}[x={(0cm,-1cm)},y={(1cm,0cm)},every node/.style={minimum size=1cm, outer sep=0pt}]\n\n");
 
   // S starting at 0,0
   for (int i = 0; i < size<0>(S); ++i) {
@@ -721,11 +679,21 @@ print_latex_copy(LayoutS const& S, ThrIDS const& TS,  // (m,n) -> (tid,vid)  and
       int val_idx = S(i,j) / size(TS);
       int thr_idx = TS(thrid);
 
-      printf("\\node[box,fill=%s] at (%d,%d) {\\shortstack{T%d \\\\ V%d}};\n",
-             color_map[thr_idx % 8],
+      printf("\\node[fill=%s] at (%d,%d) {\\shortstack{T%d \\\\ V%d}};\n",
+             color(thr_idx, val_idx),
              i, j,
              thr_idx, val_idx);
     }
+  }
+  // Grid
+  printf("\\draw[color=black,thick,shift={(-0.5,-0.5)}] (%d,%d) grid (%d,%d);\n\n",
+         0, 0, int(size<0>(S)), int(size<1>(S)));
+  // S Labels
+  for (int i =  0, j = -1; i < size<0>(S); ++i) {
+    printf("\\node at (%d,%d) {\\Large{\\texttt{%d}}};\n", i, j, i);
+  }
+  for (int i = -1, j =  0; j < size<1>(S); ++j) {
+    printf("\\node at (%d,%d) {\\Large{\\texttt{%d}}};\n", i, j, j);
   }
 
   // D starting at 0,size<1>(S)+3
@@ -735,46 +703,63 @@ print_latex_copy(LayoutS const& S, ThrIDS const& TS,  // (m,n) -> (tid,vid)  and
       int val_idx = D(i,j) / size(TD);
       int thr_idx = TD(thrid);
 
-      printf("\\node[box,fill=%s] at (%d,%d) {\\shortstack{T%d \\\\ V%d}};\n",
-             color_map[thr_idx % 8],
+      printf("\\node[fill=%s] at (%d,%d) {\\shortstack{T%d \\\\ V%d}};\n",
+             color(thr_idx, val_idx),
              i, j + size<1>(S) + 3,
              thr_idx, val_idx);
     }
   }
-
-  // S Labels
-  for (int i = 0, j = -1; i < size<0>(S); ++i) {
-    printf("\\node at (%d,%d) {\\Large{\\texttt{%d}}};\n", i, j, i);
-  }
-  for (int j = 0, i = -1; j < size<1>(S); ++j) {
-    printf("\\node at (%d,%d) {\\Large{\\texttt{%d}}};\n", i, j, j);
-  }
+  // Grid
+  printf("\\draw[color=black,thick,shift={(-0.5,-0.5)}] (%d,%d) grid (%d,%d);\n\n",
+         0, int(size<1>(S)+3), int(size<0>(D)), int(size<1>(D)+size<1>(S)+3));
   // D Labels
-  for (int i = 0, j = size<1>(D); i < size<0>(S); ++i) {
+  for (int i = 0, j = size<1>(D); i < size<0>(D); ++i) {
     printf("\\node at (%d,%d) {\\Large{\\texttt{%d}}};\n", i, j + size<1>(S) + 3, i);
   }
-  for (int j = 0, i = -1; j < size<1>(D); ++j) {
+  for (int i = -1, j =         0; j < size<1>(D); ++j) {
     printf("\\node at (%d,%d) {\\Large{\\texttt{%d}}};\n", i, j + size<1>(S) + 3, j);
   }
 
   // Footer
-  printf(latex_footer);
+  printf("\\end{tikzpicture}\n"
+         "\\end{document}\n");
 }
 
 } // end namespace cute
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
+#include <cute/atom/copy_traits_sm50.hpp>
 #include <cute/atom/copy_traits_sm75.hpp>
 #include <cute/atom/copy_traits_sm80.hpp>
 #include <cute/atom/copy_traits_sm90.hpp>
+#include <cute/atom/copy_traits_sm100.hpp> 
+
+
 // Config
 #if (__CUDACC_VER_MAJOR__ >= 12)
 #  define CUTE_COPY_ATOM_TMA_SM90_ENABLED
+#  define CUTE_COPY_ATOM_TMA_SM100_ENABLED 
 #endif
+
+
+#if (!defined(CUTE_COPY_ATOM_TMA_SM90_ENABLED))
+#  define CUTE_COPY_ATOM_TMA_SM90_ENABLED
+#endif
+
+#if (!defined(CUTE_COPY_ATOM_TMA_SM100_ENABLED))
+#  define CUTE_COPY_ATOM_TMA_SM100_ENABLED
+#endif
+
 
 #if defined(CUTE_COPY_ATOM_TMA_SM90_ENABLED)
 #include <cute/atom/copy_traits_sm90_tma.hpp>
 #endif
+
+
+#if defined(CUTE_COPY_ATOM_TMA_SM100_ENABLED)
+#include <cute/atom/copy_traits_sm100_tma.hpp>
+#endif
+
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////

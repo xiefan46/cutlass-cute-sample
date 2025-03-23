@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,9 +30,9 @@
  **************************************************************************************************/
 #pragma once
 
-#include <cute/config.hpp>
-
-#include <cute/util/type_traits.hpp>
+#include <cute/config.hpp>          // CUTE_HOST_DEVICE
+#include <cute/numeric/math.hpp>    // cute::max, cute::min
+#include <cute/numeric/complex.hpp> // cute::conj
 
 /** C++14 <functional> extensions */
 
@@ -46,7 +46,7 @@ struct identity {
   template <class T>
   CUTE_HOST_DEVICE constexpr
   decltype(auto) operator()(T&& arg) const {
-    return std::forward<T>(arg);
+    return static_cast<T&&>(arg);
   }
 };
 
@@ -69,7 +69,7 @@ struct constant_fn {
     template <class T>                                               \
     CUTE_HOST_DEVICE constexpr                                       \
     decltype(auto) operator()(T&& arg) const {                       \
-      return OP std::forward<T>(arg);                                \
+      return OP static_cast<T&&>(arg);                                \
     }                                                                \
   }
 #define CUTE_RIGHT_UNARY_OP(NAME,OP)                                 \
@@ -77,7 +77,7 @@ struct constant_fn {
     template <class T>                                               \
     CUTE_HOST_DEVICE constexpr                                       \
     decltype(auto) operator()(T&& arg) const {                       \
-      return std::forward<T>(arg) OP ;                               \
+      return static_cast<T&&>(arg) OP ;                               \
     }                                                                \
   }
 #define CUTE_NAMED_UNARY_OP(NAME,OP)                                 \
@@ -85,7 +85,7 @@ struct constant_fn {
     template <class T>                                               \
     CUTE_HOST_DEVICE constexpr                                       \
     decltype(auto) operator()(T&& arg) const {                       \
-      return OP (std::forward<T>(arg));                              \
+      return OP (static_cast<T&&>(arg));                              \
     }                                                                \
   }
 
@@ -108,6 +108,28 @@ CUTE_NAMED_UNARY_OP(conjugate, cute::conj);
 #undef CUTE_RIGHT_UNARY_OP
 #undef CUTE_NAMED_UNARY_OP
 
+template <int Shift_>
+struct shift_right_const {
+  static constexpr int Shift = Shift_;
+
+  template <class T>
+  CUTE_HOST_DEVICE constexpr
+  decltype(auto) operator()(T&& arg) const {
+    return static_cast<T&&>(arg) >> Shift;
+  }
+};
+
+template <int Shift_>
+struct shift_left_const {
+  static constexpr int Shift = Shift_;
+
+  template <class T>
+  CUTE_HOST_DEVICE constexpr
+  decltype(auto) operator()(T&& arg) const {
+    return static_cast<T&&>(arg) << Shift;
+  }
+};
+
 /************/
 /** Binary **/
 /************/
@@ -117,7 +139,7 @@ CUTE_NAMED_UNARY_OP(conjugate, cute::conj);
     template <class T, class U>                                      \
     CUTE_HOST_DEVICE constexpr                                       \
     decltype(auto) operator()(T&& lhs, U&& rhs) const {              \
-      return std::forward<T>(lhs) OP std::forward<U>(rhs);           \
+      return static_cast<T&&>(lhs) OP static_cast<U&&>(rhs);           \
     }                                                                \
   }
 #define CUTE_NAMED_BINARY_OP(NAME,OP)                                \
@@ -125,7 +147,7 @@ CUTE_NAMED_UNARY_OP(conjugate, cute::conj);
     template <class T, class U>                                      \
     CUTE_HOST_DEVICE constexpr                                       \
     decltype(auto) operator()(T&& lhs, U&& rhs) const {              \
-      return OP (std::forward<T>(lhs), std::forward<U>(rhs));        \
+      return OP (static_cast<T&&>(lhs), static_cast<U&&>(rhs));        \
     }                                                                \
   }
 
@@ -251,7 +273,7 @@ struct bound_fn {
   CUTE_HOST_DEVICE constexpr
   decltype(auto)
   operator()(T&& arg) {
-    return fn_(arg_, std::forward<T>(arg));
+    return fn_(arg_, static_cast<T&&>(arg));
   }
 
   Fn fn_;

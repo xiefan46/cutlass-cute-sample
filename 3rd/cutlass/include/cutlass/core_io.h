@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2017 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,15 +30,6 @@
  **************************************************************************************************/
 /*! \file
     \brief Helpers for printing cutlass/core objects
-*/
-/*
-  Note:  CUTLASS 3x increases the host compiler requirements to C++17. However, certain
-         existing integrations of CUTLASS require C++11 host compilers.
-
-         Until this requirement can be lifted, certain headers with this annotation are required
-         to be remain consistent with C++11 syntax.
-
-         C++11 compatibility is enforced by `cutlass_test_unit_core_cpp11`.
 */
 #pragma once
 
@@ -118,6 +109,48 @@ inline
 std::ostream & operator<<(std::ostream &out, tfloat32_t const &x) {
   return out << float(x);
 }
+
+
+inline
+std::ostream & operator<<(std::ostream &out, float_e2m1_t const &x) {
+  return out << float(x);
+}
+
+inline
+std::ostream & operator<<(std::ostream &out, detail::float_e2m1_unpacksmem_t const &x) {
+  return out << float(x);
+}
+
+inline
+std::ostream & operator<<(std::ostream &out, float_e3m2_t const &x) {
+  return out << float(x);
+}
+
+inline
+std::ostream & operator<<(std::ostream &out, float_e2m3_t const &x) {
+  return out << float(x);
+}
+
+inline
+std::ostream & operator<<(std::ostream &out, detail::float_e3m2_unpacksmem_t const &x) {
+  return out << float(x);
+}
+
+inline
+std::ostream & operator<<(std::ostream &out, detail::float_e2m3_unpacksmem_t const &x) {
+  return out << float(x);
+}
+
+inline
+std::ostream & operator<<(std::ostream &out, float_ue8m0_t const &x) {
+  return out << float(x);
+}
+
+inline
+std::ostream & operator<<(std::ostream &out, float_ue4m3_t const &x) {
+  return out << float(x);
+}
+
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
