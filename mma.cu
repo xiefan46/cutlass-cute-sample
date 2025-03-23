@@ -133,7 +133,7 @@ int main()
     // constexpr int N = 128;
     // constexpr int K = 32;
 
-    constexpr int M = 256;
+    constexpr int M = 512;
     constexpr int N = 256;
     constexpr int K = 128;
 
