@@ -133,7 +133,7 @@ int main()
     // constexpr int N = 128;
     // constexpr int K = 32;
 
-    constexpr int M = 512;
+    constexpr int M = 256;
     constexpr int N = 256;
     constexpr int K = 128;
 
@@ -149,6 +149,15 @@ int main()
     print("\n");
 
     mma_simple<T, MMA, M, N, K><<<1, block>>>(Cptr, Aptr, Bptr);
+    cudaError_t cudaerr = cudaDeviceSynchronize();
+    if (cudaerr != cudaSuccess)
+        printf("kernel launch failed with error \"%s\".\n",
+               cudaGetErrorString(cudaerr));
+
+
+
+    print("256 threads\n")
+    mma_simple<T, MMA, M, N, K><<<1, 256>>>(Cptr, Aptr, Bptr);
     cudaError_t cudaerr = cudaDeviceSynchronize();
     if (cudaerr != cudaSuccess)
         printf("kernel launch failed with error \"%s\".\n",
