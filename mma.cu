@@ -156,18 +156,16 @@ int main()
     print(size(MMA{}));
     print("\n");
 
-    mma_simple<T, MMA, M, N, K><<<1, block>>>(Cptr, Aptr, Bptr);
+ 
 
-    cudaDeviceSynchronize();
-
-//    cudaEventRecord(start);
-//    int count = 10;
-//    for (int i = 0; i < count; ++i)
-//    {
-//        mma_simple<T, MMA, M, N, K><<<1, block>>>(Cptr, Aptr, Bptr);
-//    }
-//    cudaEventRecord(end);
-//    cudaEventSynchronize(end);
-//    cudaEventElapsedTime(&elapsedTime, start, end);
-//    std::cout << "mma_simple took " << elapsedTime / count << "ms." << std::endl;
+    cudaEventRecord(start);
+    int count = 10;
+    for (int i = 0; i < count; ++i)
+    {
+        mma_simple<T, MMA, M, N, K><<<1, block>>>(Cptr, Aptr, Bptr);
+    }
+    cudaEventRecord(end);
+    cudaEventSynchronize(end);
+    cudaEventElapsedTime(&elapsedTime, start, end);
+    std::cout << "mma_simple took " << elapsedTime / count << "ms." << std::endl;
 }
