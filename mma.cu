@@ -50,10 +50,10 @@ __global__ void mma_simple(T *Cptr, const T *Aptr, const T *Bptr)
         PRINT("tCrC.shape", tCrC.shape());
     }
 
-    if (thread0()) {
-      cute::print(tArA.shape());
-      cute::print(tArA);
-    }
+//    if (thread0()) {
+//      cute::print(tArA.shape());
+//      cute::print(tArA);
+//    }
 
     cute::copy(tAgA, tArA);
     cute::copy(tBgB, tBrB);
@@ -127,8 +127,8 @@ int main()
     //                                     make_layout(Shape<_1, _1, _1>{}))); // val_layout
 
     using MMA = decltype(make_tiled_mma(mma_atom{},
-                                        make_layout(Shape<_2, _4, _4>{}),   // thr_layout
-                                        make_layout(Shape<_4, _4, _4>{}))); // val_layout
+                                        make_layout(Shape<_2, _2, _1>{}),   // thr_layout
+                                        make_layout(Shape<_1, _1, _1>{}))); // val_layout
     // constexpr int M = 128;
     // constexpr int N = 128;
     // constexpr int K = 32;
@@ -148,7 +148,7 @@ int main()
     print(size(MMA{}));
     print("\n");
 
-    mma_simple<T, MMA, M, N, K><<<1, 256>>>(Cptr, Aptr, Bptr);
+    mma_simple<T, MMA, M, N, K><<<1, block>>>(Cptr, Aptr, Bptr);
     cudaError_t cudaerr = cudaDeviceSynchronize();
     if (cudaerr != cudaSuccess)
         printf("kernel launch failed with error \"%s\".\n",
