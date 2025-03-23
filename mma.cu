@@ -116,12 +116,6 @@ Shape<_2, _4, _4>  Shape<_4, _4, _4>
 
 int main()
 {
-
-    cudaEvent_t start, end;
-    float elapsedTime;
-    cudaEventCreate(&start);
-    cudaEventCreate(&end);
-
     using T = cute::half_t;
     // MMAOperation, M=16, N=8, K=16, type=half
     using mma_op = SM80_16x8x16_F16F16F16F16_TN;
@@ -156,7 +150,7 @@ int main()
     print(size(MMA{}));
     print("\n");
 
-    mma_simple<T, MMA, M, N, K><<<1, block>>>(Cptr, Aptr, Bptr);
+    mma_simple<T, MMA, M, N, K><<<1, 1>>>(Cptr, Aptr, Bptr);
     cudaError_t cudaerr = cudaDeviceSynchronize();
     if (cudaerr != cudaSuccess)
         printf("kernel launch failed with error \"%s\".\n",
