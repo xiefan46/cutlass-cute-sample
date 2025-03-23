@@ -13,6 +13,7 @@ using namespace cute;
 template <typename T, typename MMA, int M, int N, int K>
 __global__ void mma_simple(T *Cptr, const T *Aptr, const T *Bptr)
 {
+    using namespace cute;
     MMA tiled_mma;
 
     // ThrMMA
