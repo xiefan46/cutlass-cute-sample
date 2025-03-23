@@ -150,7 +150,7 @@ int main()
     print(size(MMA{}));
     print("\n");
 
-    mma_simple<T, MMA, M, N, K><<<1, 64>>>(Cptr, Aptr, Bptr);
+    mma_simple<T, MMA, M, N, K><<<1, 128>>>(Cptr, Aptr, Bptr);
     cudaError_t cudaerr = cudaDeviceSynchronize();
     if (cudaerr != cudaSuccess)
         printf("kernel launch failed with error \"%s\".\n",
