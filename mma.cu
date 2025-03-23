@@ -156,7 +156,7 @@ int main()
 
 
 
-    print("256 threads\n")
+    print("256 threads\n");
     mma_simple<T, MMA, M, N, K><<<1, 256>>>(Cptr, Aptr, Bptr);
     cudaError_t cudaerr = cudaDeviceSynchronize();
     if (cudaerr != cudaSuccess)
