@@ -4,7 +4,7 @@ EXE_FILES=$(CC_FILES:.cu=)
 all:$(EXE_FILES)
 
 %:%.cu
-	nvcc -o $@ $< -arch=sm_80 -std=c++17 -I3rd/cutlass/include
+	nvcc -o $@ $< -O2 -arch=sm_80 -std=c++17 -I3rd/cutlass/include --expt-relaxed-constexpr -cudart shared --cudadevrt none
 
 
 # nvcc -o $@ $< -O2 -arch=sm_80 -std=c++17 -I3rd/cutlass/include --expt-relaxed-constexpr -cudart shared --cudadevrt none
