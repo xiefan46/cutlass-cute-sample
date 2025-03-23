@@ -55,8 +55,6 @@ __global__ void mma_simple(T *Cptr, const T *Aptr, const T *Bptr)
       cute::print(tArA);
     }
 
-    cute::print(tArA.shape());
-
     cute::copy(tAgA, tArA);
     cute::copy(tBgB, tBrB);
     clear(tCrC);
@@ -150,7 +148,7 @@ int main()
     print(size(MMA{}));
     print("\n");
 
-    mma_simple<T, MMA, M, N, K><<<1, block>>>(Cptr, Aptr, Bptr);
+    mma_simple<T, MMA, M, N, K><<<1, 256>>>(Cptr, Aptr, Bptr);
     cudaError_t cudaerr = cudaDeviceSynchronize();
     if (cudaerr != cudaSuccess)
         printf("kernel launch failed with error \"%s\".\n",
