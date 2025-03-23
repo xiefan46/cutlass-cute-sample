@@ -49,6 +49,13 @@ __global__ void mma_simple(T *Cptr, const T *Aptr, const T *Bptr)
         PRINT("tCrC.shape", tCrC.shape());
     }
 
+    if (thread0()) {
+      cute::print(tArA.shape());
+        cute::print(tArA);
+    }
+
+    cute::print(tArA.shape());
+
     cute::copy(tAgA, tArA);
     cute::copy(tBgB, tBrB);
     clear(tCrC);
