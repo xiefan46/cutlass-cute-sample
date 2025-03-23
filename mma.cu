@@ -32,28 +32,28 @@ __global__ void mma_simple(T *Cptr, const T *Aptr, const T *Bptr)
     auto tBrB = thr_mma.partition_fragment_B(B);
     auto tCrC = thr_mma.partition_fragment_C(C);
 
-//    if (threadIdx.x == 0)
-//    {
-//        // MMA 由MMA指令决定，不受MMAThrLayout和MMAValLayout影响
-//        // A,B,C 对应为： 16*16/32=8=(2,2,2), 16*8/32=4=(2,2), 16*8/32=4=(2,2)
-//
-//        // MMA_M, MMA_K, MMA_N 由MMA指令、MMAThrLayout和源Tensor shape决定，不受MMAValLayout影响
-//        // MMA_M = M / (mma_op_m * thr_layout_m)
-//        // MMA_N = N / (mma_op_n * thr_layout_n)
-//        // MMA_K = K / (mma_op_k * thr_layout_k)
-//
-//        // (MMA, MMA_M, MMA_K)
-//        PRINT("tArA.shape", tArA.shape());
-//        // (MMA, MMA_N, MMA_K)
-//        PRINT("tBrB.shape", tBrB.shape());
-//        // (MMA, MMA_M, MMA_N)
-//        PRINT("tCrC.shape", tCrC.shape());
-//    }
+    if (threadIdx.x == 0)
+    {
+        // MMA 由MMA指令决定，不受MMAThrLayout和MMAValLayout影响
+        // A,B,C 对应为： 16*16/32=8=(2,2,2), 16*8/32=4=(2,2), 16*8/32=4=(2,2)
 
-    if (thread0()) {
-      cute::print(tArA.shape());
-      cute::print(tArA);
+        // MMA_M, MMA_K, MMA_N 由MMA指令、MMAThrLayout和源Tensor shape决定，不受MMAValLayout影响
+        // MMA_M = M / (mma_op_m * thr_layout_m)
+        // MMA_N = N / (mma_op_n * thr_layout_n)
+        // MMA_K = K / (mma_op_k * thr_layout_k)
+
+//        constexpr int M = 256; 256 / (2 * 64) = 2
+//        constexpr int N = 256;
+//        constexpr int K = 128;
+
+        // (MMA, MMA_M, MMA_K)
+        PRINT("tArA.shape", tArA.shape());
+        // (MMA, MMA_N, MMA_K)
+        PRINT("tBrB.shape", tBrB.shape());
+        // (MMA, MMA_M, MMA_N)
+        PRINT("tCrC.shape", tCrC.shape());
     }
+
 
     cute::copy(tAgA, tArA);
     cute::copy(tBgB, tBrB);
